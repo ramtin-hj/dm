@@ -8,8 +8,11 @@
 #define VERSION_MINOR   0
 
 #define ERR_BUF_SIZE    256 
+#define INPUT_BUF_SIZE  1024 
 #define MIN_ARGC        2
 #define MAX_PARALLEL    10
+#define URL_BASE_CAP    10
+#define URL_GROWTH_FACT 2
 
 #define BYTES_PER_GIB      1073741824ULL
 #define BYTES_PER_MIB      1048576ULL
@@ -55,9 +58,9 @@ static size_t dlstr_len = ARR_LEN(dlstr) - 1;
 
 int dm_conv_size(double *size, const char **suffix);
 int dm_conv_speed(double *speed, const char **suffix);
-void dm_print_version();
-void dm_print_helpstr();
-void dm_print_progress(struct download *dl);
+void dm_log_version();
+void dm_log_helpstr();
+void dm_log_download_progress(struct download *dl);
 size_t dm_data_cb(char *buffer, size_t size, size_t nmemb, void *userp);
 int dm_download_sync(struct download *dl, const char *path, const char *url);
 

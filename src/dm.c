@@ -7,10 +7,9 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdbool.h>
-#include <math.h>
 #include <curl/curl.h>
+#include <math.h>
 #ifdef _WIN32 
-/* TODO: Implement a Windows approach to argument parsing. */
 #else
 #include <unistd.h>
 #endif
@@ -20,34 +19,46 @@ const char *exec_name;
 
 int main(int argc, char *argv[])
 {
-        int retval = EXIT_FAILURE;
-
-        int opt;
-        size_t optarg_len;
-
-        /* Path must be initialized to null. */
-        char *temp;
-        char *dirpath = NULL;
         exec_name = base_path(argv[0]);
 
         struct download dl;
 
+        char *temp;
+
+        int input_method = INPUT_METHOD_CLI;
+        char input_buf[INPUT_BUF_SIZE];
+        char *input_filepath = NULL;
+        char *dirpath = NULL;
+        FILE *input_file = NULL;
+
+        size_t url_count = 0;
+        char **url = NULL;
+        char **filename = NULL;
+        char **filepath = NULL;
+
+        CURL *curl;
         CURLcode res_init, res_setopt;
         bool slash = false;
         bool margc = argc >= MIN_ARGC;
 
+        int opt;
+        size_t optarg_len;
+
+        int retval = EXIT_FAILURE;
+
         if (!margc) {
-                dm_print_helpstr();
+                dm_log_helpstr();
                 goto out;
         }
 
-        while ((opt = getopt(argc, argv, ":vhd:")) != -1) {
+        /* TODO: Implement a Windows alternative to getopt to facilitate cross-compatability. */
+        while ((opt = getopt(argc, argv, ":vhd:f:")) != -1) {
                 switch (opt) {
                         case 'v':
-                                dm_print_version();
+                                dm_log_version();
                                 goto out;
                         case 'h':
-                                dm_print_helpstr();
+                                dm_log_helpstr();
                                 goto out;
                         case 'd':
                                 optarg_len = strlen(optarg);
@@ -77,8 +88,15 @@ int main(int argc, char *argv[])
                                 dirpath[size - 1] = '\0';
 
                                 break;
+                        case 'f':
+                                input_method = INPUT_METHOD_FILE;
+                                input_filepath = strdup(optarg);
+                                if (!input_filepath)
+                                        goto out_free_dirpath;
+
+                                break;
                         case ':': 
-                                LOG_ERROR("option requires a value"); 
+                                LOG_ERROR_VA("'%c' option requires a value", optopt); 
                                 goto out;
                         case '?': 
                                 LOG_ERROR_VA("unknown option: '%c'", optopt);
@@ -86,16 +104,16 @@ int main(int argc, char *argv[])
                 }
         }
 
-        if (optind >= argc) {
-                dm_print_helpstr();
-                goto out_free_dirpath;
+        if (optind >= argc && input_method != INPUT_METHOD_FILE) {
+                dm_log_helpstr();
+                goto out_free_input_filepath;
         }
 
         res_init = curl_global_init(CURL_GLOBAL_ALL);
         if (res_init != CURLE_OK)
-                goto out_free_dirpath;
+                goto out_free_input_filepath;
 
-        CURL *curl = curl_easy_init();
+        curl = curl_easy_init();
         if (!curl)
                 goto out_curl_global;
 
@@ -123,47 +141,119 @@ int main(int argc, char *argv[])
                 goto out_curl;
         } 
 
-        size_t nurl = (size_t)(argc - optind);
-
-        const char **url = malloc(nurl * sizeof *url);
-        if (!url) {
-                LOG_FATAL(strerror(errno));
-                goto out_curl;
-        }
-
-        const char **filename = malloc(nurl * sizeof *filename);
-        if (!filename) {
-                LOG_FATAL(strerror(errno));
-                goto out_free_urlstr;
-        }
-
-        const char **filepath = malloc(nurl * sizeof *filepath);
-        if (!filepath) {
-                LOG_FATAL(strerror(errno));
-                goto out_free_filename;
-        }
-
-        for (size_t i = 0; i < nurl; i++) {
-                url[i] = argv[optind + i];
-                filename[i] = base_path(url[i]);
-                filepath[i] = filename[i];
-
-                if (dirpath) {
-                        size_t size = strlen(dirpath) + strlen(filename[i]) + 1;
-                        temp = realloc(dirpath, size);
-                        if (!temp)
-                                goto out_free_filepath;
-
-                        dirpath = temp;
-
-                        strcat(dirpath, filename[i]);
-
-                        filepath[i] = dirpath;
+        if (input_method == INPUT_METHOD_FILE) {
+                input_file = fopen(input_filepath, "rb");
+                if (!input_file) {
+                        LOG_FATAL(strerror(errno));
+                        goto out_curl;
                 }
 
-                if (dm_download_sync(&dl, filepath[i], url[i]) < 0) {
-                        LOG_FATAL_VA("download failed (%s): %s", filename[i], err_buf);
-                        goto out_free_filepath;
+                size_t url_cap = URL_BASE_CAP;
+
+                url = malloc(url_cap * sizeof *url);
+                filename = malloc(url_cap * sizeof *filename);
+                filepath = malloc(url_cap * sizeof *filepath);
+
+                while (fgets(input_buf, INPUT_BUF_SIZE, input_file)) {
+                        temp = strrchr(input_buf, '\n');
+                        *temp = '\0';
+
+                        if (url_count >= url_cap) {
+                                url_cap *= URL_GROWTH_FACT;
+
+                                temp = realloc(url, url_cap);
+                                if (!temp)
+                                        goto out_free_filepath;
+
+                                url = (char**)temp;
+
+                                temp = realloc(filename, url_cap);
+                                if (!temp)
+                                        goto out_free_filepath;
+
+                                filename = (char**)temp;
+
+                                temp = realloc(filepath, url_cap);
+                                if (!temp)
+                                        goto out_free_filepath;
+
+                                filepath = (char**)temp;
+                        }
+
+                        url[url_count] = strdup(input_buf);
+                        if (!url[url_count])
+                                goto out_free_filepath;
+
+                        filename[url_count] = (char*)base_path(url[url_count]);
+                        filepath[url_count] = filename[url_count];
+                        
+                        url_count++;
+                }
+
+                for (size_t i = 0; i < url_count; i++) {
+                        if (dirpath) {
+                                size_t size = strlen(dirpath) + strlen(filename[i]) + 1;
+                                temp = realloc(dirpath, size);
+                                if (!temp)
+                                        goto out_free_filepath;
+
+                                dirpath = temp;
+
+                                strcat(dirpath, filename[i]);
+
+                                filepath[i] = dirpath;
+                        }
+
+                        if (dm_download_sync(&dl, filepath[i], url[i]) < 0) {
+                                LOG_FATAL_VA("download failed (%s): %s", filename[i], err_buf);
+                                goto out_free_filepath;
+                        }
+                }
+
+                fclose(input_file);
+        } else {
+                url_count = (size_t)(argc - optind);
+
+                url = malloc(url_count * sizeof *url);
+                if (!url) {
+                        LOG_FATAL(strerror(errno));
+                        goto out_curl;
+                }
+
+                filename = malloc(url_count * sizeof *filename);
+                if (!filename) {
+                        LOG_FATAL(strerror(errno));
+                        goto out_free_url;
+                }
+
+                filepath = malloc(url_count * sizeof *filepath);
+                if (!filepath) {
+                        LOG_FATAL(strerror(errno));
+                        goto out_free_filename;
+                }
+
+                for (size_t i = 0; i < url_count; i++) {
+                        url[i] = argv[optind + i];
+                        filename[i] = (char*)base_path(url[i]);
+                        filepath[i] = filename[i];
+
+                        if (dirpath) {
+                                size_t size = strlen(dirpath) + strlen(filename[i]) + 1;
+                                temp = realloc(dirpath, size);
+                                if (!temp)
+                                        goto out_free_filepath;
+
+                                dirpath = temp;
+
+                                strcat(dirpath, filename[i]);
+
+                                filepath[i] = dirpath;
+                        }
+
+                        if (dm_download_sync(&dl, filepath[i], url[i]) < 0) {
+                                LOG_FATAL_VA("download failed (%s): %s", filename[i], err_buf);
+                                goto out_free_filepath;
+                        }
                 }
         }
 
@@ -177,17 +267,28 @@ int main(int argc, char *argv[])
         retval = EXIT_SUCCESS;
 
 out_free_filepath:
-        free(filepath);
+        if (filepath)
+                free(filepath);
 out_free_filename:
-        free(filename);
-out_free_urlstr:
-        free(url);
+        if (filename)
+                free(filename);
+out_free_url:
+        if (url) {
+                if (input_method == INPUT_METHOD_FILE)
+                        for (size_t i = 0; i < url_count; i++)
+                                free(url[i]);
+                free(url);
+        }
 out_curl:
         curl_easy_cleanup(curl);
 out_curl_global:
         curl_global_cleanup();
+out_free_input_filepath:
+        if (input_filepath)
+                free(input_filepath);
 out_free_dirpath:
-        if (dirpath) free(dirpath);
+        if (dirpath)
+                free(dirpath);
 out:
         return retval;
 }
@@ -272,12 +373,12 @@ out:
         return retval;
 }
 
-void dm_print_version()
+void dm_log_version()
 {
         LOG_VA("version %d.%d", VERSION_MAJOR, VERSION_MINOR);
 }
 
-void dm_print_helpstr()
+void dm_log_helpstr()
 {
         LOG_VA("usage: %s [options] <URL>...", exec_name);
         LOG("options:");
@@ -286,13 +387,20 @@ void dm_print_helpstr()
         LOG("\t-d <path>: specify a directory (does not create the directory!).");
 }
 
-void dm_print_progress(struct download *dl)
+void dm_log_download_progress(struct download *dl)
 {
+        curl_off_t speed, filesize;
+        double cspeed, csize, cfilesize;
+        const char *speed_suffix, *size_suffix, *filesize_suffix;
+
+        double progress;
+        int percent;
+        int progress_len;
+
+        CURLcode res_speed, res_filesize; 
+
         if (!dl)
                 goto out;
-
-        curl_off_t speed, filesize;
-        CURLcode res_speed, res_filesize; 
 
         res_speed = curl_easy_getinfo(dl->curl, CURLINFO_SPEED_DOWNLOAD_T, &speed);
         res_filesize = curl_easy_getinfo(dl->curl, CURLINFO_CONTENT_LENGTH_DOWNLOAD_T, &filesize);
@@ -304,10 +412,8 @@ void dm_print_progress(struct download *dl)
         if (pos <= 0)
                 goto out;
 
-        double cspeed = (double)speed;
-        double csize = (double)pos;
-        const char *speed_suffix;
-        const char *size_suffix;
+        cspeed = (double)speed;
+        csize = (double)pos;
 
         if (dm_conv_speed(&cspeed, &speed_suffix) < 0)
                 goto out;
@@ -324,14 +430,13 @@ void dm_print_progress(struct download *dl)
                 goto out;
         }
 
-        double cfilesize = filesize;
-        const char *filesize_suffix;
+        cfilesize = filesize;
 
         dm_conv_size(&cfilesize, &filesize_suffix);
 
-        double progress = (double)pos / filesize;
-        int percent = (int)roundf(progress * 100.0);
-        int progress_len = (int)roundf(progress * dlstr_len);
+        progress = (double)pos / filesize;
+        percent = (int)roundf(progress * 100.0);
+        progress_len = (int)roundf(progress * dlstr_len);
 
         printf(CLEAR_LINE "%s (%.2f %s / %.2f %s) %.2f %s %d%% [%-*.*s]",
                         dl->filename,
@@ -350,7 +455,7 @@ size_t dm_data_cb(char *buffer, size_t size, size_t nmemb, void *userp)
 {
         struct download *dl = userp;
 
-        dm_print_progress(dl);
+        dm_log_download_progress(dl);
 
         /*
          * Pass 1 as the element size so fwrite's return value
@@ -363,9 +468,9 @@ int dm_download_sync(struct download *dl, const char *path, const char *url)
 {
         int retval = -1;
 
-        FILE *file = fopen(path, "wb");
         CURLcode res_setopt, res_perform;
 
+        FILE *file = fopen(path, "wb");
         if (!file) {
                 LOG_FATAL(strerror(errno));
                 goto out;
