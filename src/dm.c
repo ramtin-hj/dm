@@ -126,16 +126,14 @@ int main(int argc, char *argv[])
         if (dm_download_perform(&dm_ctx, &dm_dl) != DM_OK)
                 goto out_dl_cleanup;
 
-
         /*
          * Appending a new-line character in stdout
-         * to ensure the following shell prompt gets
-         * drawn on a new line. 
+         * to ensure that the following shell prompt
+         * gets drawn on a new line. 
          */
         putc('\n', stdout);
 
         retval = EXIT_SUCCESS;
-
 
 out_dl_cleanup:
         dm_download_cleanup(&dm_ctx, &dm_dl);
@@ -230,9 +228,11 @@ void dm_download_cleanup(struct dm_context *dm_ctx, struct dm_download *dm_dl)
                 free(dm_dl->filename);
 
         if (dm_dl->url) {
-                if (dm_ctx->input_method == INPUT_FILE)
+                if (dm_ctx->input_method == INPUT_FILE) {
                         for (size_t i = 0; i < dm_dl->count; i++)
                                 free(dm_dl->url[i]);
+                }
+
                 free(dm_dl->url);
         }
 
@@ -246,10 +246,7 @@ int dm_download_perform(struct dm_context *dm_ctx, struct dm_download *dm_dl)
 
         char *temp;
 
-        /* 
-         * TODO: Implement asynchronous downloads
-         * using curl's multimode.
-         */
+        /* TODO: Implement asynchronous downloads using curl's multimode. */
         if (dm_dl->mode != DOWNLOAD_SYNC)
                 goto out;
 
@@ -362,8 +359,8 @@ int dm_parse_args(struct dm_context *dm_ctx,
                                 }
 
                                 /* 
-                                 * Allocating enough size for the forward/backwards slash
-                                 * as well as the null-terminating character. 
+                                 * Allocating enough size for the forward slash and the
+                                 * null character. 
                                  */
                                 new_size = optarg_len + 2;
 
@@ -535,10 +532,9 @@ int dm_size_unit(double *size, const char **unit)
         }
 
         /* 
-         * Do not change the order of these
-         * statements as the conversion logic
-         * has been encoded within the order 
-         * of these statements.
+         * Note: Do not change the order of these
+         * statements as the conversion logic has
+         * been encoded within their placement order.
          */
         if (*size >= BYTES_PER_GIB) {
                 *size /= BYTES_PER_GIB;
@@ -575,12 +571,10 @@ int dm_speed_unit(double *speed, const char **unit)
         }
 
         /* 
-         * Do not change the order of these
-         * statements as the conversion logic
-         * has been encoded within the order 
-         * of these statements.
+         * Note: Do not change the order of these
+         * statements as the conversion logic has
+         * been encoded within their placement order.
          */
-
         if (*speed >= BYTES_PER_GIB) {
                 *speed /= BYTES_PER_GIB;
                 *unit = speed_unit[GB_UNIT_IDX];
@@ -616,12 +610,10 @@ int dm_speed_unit_bits(double *speed_bits, const char **unit)
         }
 
         /* 
-         * Do not change the order of these
-         * statements as the conversion logic
-         * has been encoded within the order 
-         * of these statements.
+         * Note: Do not change the order of these
+         * statements as the conversion logic has
+         * been encoded within their placement order.
          */
-
         if (*speed_bits >= BITS_PER_GIGABIT) {
                 *speed_bits /= BITS_PER_GIGABIT;
                 *unit = speed_unit_bits[GBPS_UNIT_IDX];
@@ -648,8 +640,11 @@ out:
 }
 
 void dm_format_time(unsigned long seconds, char *buf, size_t buf_size) {
+        /* 
+         * Fallback for unknown, infinite, or 
+         * excessively long ETAs (more than 24 hours).
+         */
         if (seconds == 0 || seconds > SECONDS_PER_DAY) {
-                /* Fallback for unknown, infinite, or excessively long ETAs (> 24 hours) */
                 snprintf(buf, buf_size, "--:--");
                 return;
         }
