@@ -4,16 +4,23 @@
 #include <parg/parg.h>
 #include "util.h"
 
-#define VERSION_MAJOR           1
-#define VERSION_MINOR           0
-#define ERR_BUF_SIZE            256 
-#define INPUT_BUF_SIZE          1024 
-#define TIME_BUF_SIZE           16 
-#define MIN_ARGC                2
-#define MAX_PARALLEL            10
+/* DM constants */
+#define VERSION_MAJOR   1
+#define VERSION_MINOR   0
+#define MAX_PARALLEL    10
+#define MIN_ARGC        2
+#define ARG_FMT         ":vhd:f:"
+
+/* Buffer sizes */
+#define ERR_BUF_SIZE    256 
+#define INPUT_BUF_SIZE  1024 
+#define TIME_BUF_SIZE   16 
+
+/* Dynamic array constants */
 #define DYN_ARR_BASE_CAP        10
 #define DYN_ARR_GROWTH_FACT     2
-#define ARG_FMT                 ":vhd:f:"
+
+/* Size units and conversions */
 #define BYTES_PER_GIB           1073741824ULL
 #define BYTES_PER_MIB           1048576ULL
 #define BYTES_PER_KIB           1024ULL
@@ -21,14 +28,29 @@
 #define BITS_PER_MEGABIT        1000000ULL
 #define BITS_PER_KILOBIT        1000ULL
 #define BITS_PER_BYTE           8ULL
+
+/* Time units and conversions */
 #define SECONDS_PER_DAY         86400ULL
 #define SECONDS_PER_HOUR        3600ULL
-#define SECOND_PER_MINUTE       60ULL
+#define SECONDS_PER_MINUTE      60ULL
 #define MINUTES_PER_HOUR        60ULL
+
+/* Libcurl flags */
 #define PROGRESS_BAR_FLAG       1L
 #define FOLLOWLOCATION_FLAG     1L
 #define LOW_SPEED_LIMIT_FLAG    1L
 #define LOW_SPEED_TIME_FLAG     30L
+
+/* File modes */
+#define FILE_MODE_READ_BINARY           "rb"
+#define FILE_MODE_WRITE_BINARY          "wb"
+#define FILE_MODE_APPEND_BINARY         "ab"
+#define FILE_MODE_READ                  "r"
+#define FILE_MODE_WRITE                 "w"
+#define FILE_MODE_APPEND                "a"
+#define FILE_MODE_READ_WRITE            "r+"
+#define FILE_MODE_READ_WRITE_TRUNC      "w+"
+#define FILE_MODE_READ_APPEND_TRUNC     "a+"
 
 enum input_method {
         INPUT_CLI,

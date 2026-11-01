@@ -2,19 +2,18 @@
 #include "log.h"
 #include "ascii.h"
 #include "util.h"
-#include <curl/easy.h>
-#include <curl/system.h>
+#include <math.h>
 #include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <stdbool.h>
 #include <curl/curl.h>
-#include <math.h>
 #include <parg/parg.h>
 
 char time_buf[TIME_BUF_SIZE];
 char err_buf[ERR_BUF_SIZE];
+
 const char *exec_name;
 
 int main(int argc, char *argv[])
@@ -111,7 +110,7 @@ int main(int argc, char *argv[])
                 if (dm_input_cli(&dm_dl, ps.optind, argc, argv) != DM_OK)
                         goto out_dl_cleanup;
         } else {
-                input_file = fopen(dm_ctx.input_filepath, "rb");
+                input_file = fopen(dm_ctx.input_filepath, FILE_MODE_READ_BINARY);
                 if (!input_file) {
                         LOG_FATAL(strerror(errno));
                         goto out_dl_cleanup;
@@ -129,9 +128,9 @@ int main(int argc, char *argv[])
 
 
         /*
-         * Appending a '\n' character in stdout
-         * to ensure the following shell prompt
-         * gets drawn on a new line. 
+         * Appending a new-line character in stdout
+         * to ensure the following shell prompt gets
+         * drawn on a new line. 
          */
         putc('\n', stdout);
 
@@ -167,8 +166,6 @@ int dm_progress_cb(void *clientp,
 size_t dm_data_cb(char *buffer, size_t size, size_t nmemb, void *userp)
 {
         struct dm_download *dm_dl = userp;
-
-        // dm_log_download_progress(dm_dl);
 
         /*
          * Pass 1 as the element size so fwrite's return value
@@ -288,13 +285,15 @@ out:
         return retval;
 }
 
-int dm_download_sync(struct dm_download *dm_dl, const char *path, const char *url)
+int dm_download_sync(struct dm_download *dm_dl,
+                const char *path,
+                const char *url)
 {
         int retval = -DM_FAIL;
 
         CURLcode res_setopt, res_perform;
 
-        FILE *file = fopen(path, "wb");
+        FILE *file = fopen(path, FILE_MODE_WRITE_BINARY);
         if (!file) {
                 LOG_FATAL(strerror(errno));
                 goto out;
@@ -323,13 +322,13 @@ int dm_parse_args(struct dm_context *dm_ctx,
                 char *argv[],
                 const char *arg_fmt)
 {
-        int retval = -1;
+        int retval = -DM_FAIL;
 
         if (!dm_ctx || !ps)
                 goto out;
 
         int opt;
-        size_t optarg_len;
+        size_t optarg_len, new_size;
         bool slash = false;
 
         while ((opt = parg_getopt(ps, argc, argv, arg_fmt)) != -1) {
@@ -341,14 +340,18 @@ int dm_parse_args(struct dm_context *dm_ctx,
                                 dm_log_help();
                                 exit(EXIT_SUCCESS);
                         case 'd':
+                                /* 
+                                 * TODO: Since Windows supports both forward and backwards
+                                 * slashes in it's paths, a more exhaustive approach must
+                                 * be taken for appending trailing slashes.
+                                 */
                                 optarg_len = strlen(ps->optarg);
                                 if (optarg_len == 0) {
                                         LOG_ERROR("path argument cannot be empty");
                                         exit(EXIT_FAILURE);
                                 }
 
-                                slash = false;
-                                if (ps->optarg[optarg_len - 1] == '/')
+                                if (optarg_len >= 1 && ps->optarg[optarg_len - 1] == '/')
                                         slash = true;
 
                                 if (slash) {
@@ -358,18 +361,25 @@ int dm_parse_args(struct dm_context *dm_ctx,
                                         break;
                                 }
 
-                                size_t size = optarg_len + 2;
-                                dm_ctx->dirpath = malloc(size);
+                                /* 
+                                 * Allocating enough size for the forward/backwards slash
+                                 * as well as the null-terminating character. 
+                                 */
+                                new_size = optarg_len + 2;
+
+                                dm_ctx->dirpath = malloc(new_size);
                                 if (!dm_ctx->dirpath)
                                         exit(EXIT_FAILURE);
 
-                                memcpy(dm_ctx->dirpath, ps->optarg, size - 2);
-                                dm_ctx->dirpath[size - 2] = '/';
-                                dm_ctx->dirpath[size - 1] = '\0';
+                                memcpy(dm_ctx->dirpath, ps->optarg, optarg_len);
+
+                                dm_ctx->dirpath[new_size - 2] = '/';
+                                dm_ctx->dirpath[new_size - 1] = '\0';
 
                                 break;
                         case 'f':
                                 dm_ctx->input_method = INPUT_FILE;
+
                                 dm_ctx->input_filepath = strdup(ps->optarg);
                                 if (!dm_ctx->input_filepath)
                                         exit(EXIT_FAILURE);
@@ -387,7 +397,7 @@ int dm_parse_args(struct dm_context *dm_ctx,
                 }
         }
 
-        retval = 0;
+        retval = DM_OK;
 out:
         return retval;
 }
@@ -422,7 +432,10 @@ out:
         return retval;
 }
 
-int dm_input_cli(struct dm_download *dm_dl, int arg_start_idx, int argc, char *argv[])
+int dm_input_cli(struct dm_download *dm_dl,
+                int arg_start_idx,
+                int argc,
+                char *argv[])
 {
         int retval = -DM_FAIL;
 
@@ -458,7 +471,9 @@ out:
         return retval;
 }
 
-int dm_input_file(struct dm_context *dm_ctx, struct dm_download *dm_dl, FILE *input_file)
+int dm_input_file(struct dm_context *dm_ctx,
+                struct dm_download *dm_dl,
+                FILE *input_file)
 {
         int retval = -DM_FAIL;
 
@@ -552,10 +567,10 @@ out:
 
 int dm_speed_unit(double *speed, const char **unit)
 {
-        int retval = 0;
+        int retval = DM_OK;
 
         if (!speed || !unit) {
-                retval = -1;
+                retval = -DM_FAIL;
                 goto out;
         }
 
@@ -593,10 +608,10 @@ out:
 
 int dm_speed_unit_bits(double *speed_bits, const char **unit)
 {
-        int retval = 0;
+        int retval = DM_OK;
 
         if (!speed_bits || !unit) {
-                retval = -1;
+                retval = -DM_FAIL;
                 goto out;
         }
 
@@ -641,7 +656,7 @@ void dm_format_time(unsigned long seconds, char *buf, size_t buf_size) {
 
         unsigned long hours = seconds / SECONDS_PER_HOUR;
         unsigned long minutes = (seconds % SECONDS_PER_HOUR) / MINUTES_PER_HOUR;
-        seconds = seconds % SECOND_PER_MINUTE;
+        seconds = seconds % SECONDS_PER_MINUTE;
 
         if (hours > 0) {
                 snprintf(buf, buf_size, "%02d:%02d:%02d",
@@ -673,7 +688,9 @@ void dm_log_help(void)
         LOG("\t-f <file>: specify a file containing URI.");
 }
 
-void dm_log_download_progress(struct dm_download *dm_dl, curl_off_t dltotal, curl_off_t dlnow)
+void dm_log_download_progress(struct dm_download *dm_dl,
+                curl_off_t dltotal,
+                curl_off_t dlnow)
 {
         curl_off_t dlspeed;
 
