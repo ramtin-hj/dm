@@ -123,8 +123,15 @@ int main(int argc, char *argv[])
                         fclose(input_file);
         }
 
-        if (dm_download_perform(&dm_ctx, &dm_dl) != DM_OK)
+        if (dm_download_perform(&dm_ctx, &dm_dl) != DM_OK) {
+                putc('\n', stdout);
+                LOG_ERROR_VA("download [%zu/%zu] %s: %s",
+                                dm_dl.idx,
+                                dm_dl.count,
+                                dm_dl.filename[dm_dl.idx],
+                                err_buf);
                 goto out_dl_cleanup;
+        }
 
         /*
          * Appending a new-line character in stdout
@@ -265,10 +272,8 @@ int dm_download_perform(struct dm_context *dm_ctx, struct dm_download *dm_dl)
                 }
 
 
-                if (dm_download_sync(dm_dl, dm_dl->filepath[i], dm_dl->url[i]) != DM_OK) {
-                        LOG_FATAL_VA("download failed (%s): %s", dm_dl->filename[i], err_buf);
+                if (dm_download_sync(dm_dl, dm_dl->filepath[i], dm_dl->url[i]) != DM_OK)
                         goto out;
-                }
 
                 if (dm_ctx->dirpath) {
                         free(dm_dl->filepath[i]);
