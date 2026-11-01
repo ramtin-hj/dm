@@ -6,7 +6,18 @@ file(GLOB SRC_FILES CONFIGURE_DEPENDS "${PROJECT_SOURCE_DIR}/src/*.c")
 
 add_executable(dm ${SRC_FILES})
 
+# Compile against ANSI C
 target_compile_features(dm PRIVATE c_std_90)
+
+add_library(parg
+        SHARED
+        IMPORTED
+)
+
+set_target_properties(parg PROPERTIES
+    IMPORTED_LOCATION
+    "${PROJECT_SOURCE_DIR}/external/lib/parg/libparg.a"
+)
 
 if(CMAKE_BUILD_TYPE STREQUAL "Debug")
         target_compile_options(dm
@@ -21,7 +32,7 @@ if(CMAKE_BUILD_TYPE STREQUAL "Debug")
                 -Wmaybe-uninitialized
                 -pedantic
         )
-target_link_libraries(dm PRIVATE m curl -fsanitize=address,undefined)
+        target_link_libraries(dm PRIVATE m curl parg -fsanitize=address,undefined)
 elseif(CMAKE_BUILD_TYPE STREQUAL "Release")
         target_compile_options(dm
                 PRIVATE
@@ -34,7 +45,11 @@ elseif(CMAKE_BUILD_TYPE STREQUAL "Release")
                 -Wmaybe-uninitialized
                 -pedantic
         )
-target_link_libraries(dm PRIVATE m curl)
+        target_link_libraries(dm PRIVATE m curl parg)
 endif()
 
-target_include_directories(dm PRIVATE "${PROJECT_SOURCE_DIR}/include")
+target_include_directories(dm 
+        PRIVATE
+        "${PROJECT_SOURCE_DIR}/include"
+        "${PROJECT_SOURCE_DIR}/external/include"
+)
