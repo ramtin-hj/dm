@@ -155,7 +155,7 @@ int main(int argc, char *argv[])
         retval = EXIT_SUCCESS;
 
 out_dl_cleanup:
-        dm_download_cleanup(&dm_ctx, &dm_dl);
+        dm_download_cleanup(&dm_dl);
 out_curl_cleanup:
         curl_global_cleanup();
 out_dm_cleanup:
@@ -236,11 +236,8 @@ out:
 
 void dm_context_cleanup(struct dm_context *dm_ctx)
 {
-        if (dm_ctx->input_filepath)
-                free(dm_ctx->input_filepath);
-        if (dm_ctx->dirpath)
-                free(dm_ctx->dirpath);
-
+        free(dm_ctx->input_filepath);
+        free(dm_ctx->dirpath);
 }
 
 int dm_download_init(struct dm_download *dm_dl, CURL *curl, int mode)
@@ -266,12 +263,10 @@ out:
         return retval;
 }
 
-void dm_download_cleanup(struct dm_context *dm_ctx, struct dm_download *dm_dl)
+void dm_download_cleanup(struct dm_download *dm_dl)
 {
-        if (dm_ctx->dirpath) {
-                for (size_t i = 0; i < dm_dl->count; i++)
-                        free(dm_dl->filepath[i]);
-        }
+        for (size_t i = 0; i < dm_dl->count; i++)
+                free(dm_dl->filepath[i]);
 
         free(dm_dl->filepath);
 
@@ -300,18 +295,17 @@ int dm_download_perform(struct dm_context *dm_ctx, struct dm_download *dm_dl)
                 goto out;
 
         for (size_t i = 0; i < dm_dl->count; i++) {
-                dm_dl->idx = i;
-                if (dm_ctx->dirpath) {
-                        size = strlen(dm_ctx->dirpath) + strlen(dm_dl->filename[i]) + 1;
-                        temp = malloc(size);
-                        if (!temp)
-                                goto out;
+                const char *dir = dm_ctx->dirpath ? dm_ctx->dirpath : "";
 
-                        strcpy(temp, dm_ctx->dirpath);
-                        strcat(temp, dm_dl->filename[i]);
+                size = strlen(dir) + strlen(dm_dl->filename[i]) + 1;
+                temp = malloc(size);
+                if (!temp)
+                        goto out;
 
-                        dm_dl->filepath[i] = temp;
-                }
+                strcpy(temp, dir);
+                strcat(temp, dm_dl->filename[i]);
+
+                dm_dl->filepath[i] = temp;
 
                 if (dm_download_sync(dm_dl, dm_dl->filepath[i], dm_dl->url[i]) != DM_OK)
                         goto out;
@@ -354,7 +348,7 @@ int dm_download_sync(struct dm_download *dm_dl,
 
         FILE *file = fopen(path, FILE_MODE_WRITE_BINARY);
         if (!file) {
-                LOG_FATAL(strerror(errno));
+                strcpy(err_buf, strerror(errno));
                 goto out;
         }
 
@@ -539,8 +533,6 @@ int dm_input_cli(struct dm_download *dm_dl,
                 dm_dl->url[i] = strdup(argv[arg_start_idx + i]);
 
                 dm_dl->filename[i] = strdup(base_path(dm_dl->url[i]));
-
-                dm_dl->filepath[i] = dm_dl->filename[i];
         }
 
         retval = 0;
