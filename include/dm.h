@@ -1,5 +1,6 @@
 #ifndef DM_H
 #define DM_H
+#include <stdbool.h>
 #include <curl/curl.h>
 #include <parg/parg.h>
 #include "util.h"
@@ -52,6 +53,8 @@
 #define FILE_MODE_READ_WRITE_TRUNC      "w+"
 #define FILE_MODE_READ_APPEND_TRUNC     "a+"
 
+#define HEADER_FILENAME_KEY        "filename=" 
+
 enum input_method {
         INPUT_CLI,
         INPUT_FILE
@@ -89,8 +92,11 @@ struct dm_context  {
 
 struct dm_download {
         int mode;
+
         CURL *curl;
         FILE *file;
+
+        bool has_filename;
 
         size_t count, idx;
         char **url, **filename, **filepath;
@@ -122,6 +128,10 @@ static const char *const speed_unit_bits[] = {
 static const char dlstr[] = "#########################";
 static size_t dlstr_len = ARR_LEN(dlstr) - 1;
 
+size_t dm_header_cb(char *buffer,
+                size_t size,
+                size_t nitems,
+                void *userdata);
 size_t dm_data_cb(char *buffer, size_t size, size_t nmemb, void *userp);
 int dm_progress_cb(void *clientp,
                 curl_off_t dltotal,
@@ -142,9 +152,9 @@ int dm_parse_args(struct dm_context *dm_ctx,
                 char *argv[],
                 const char *arg_fmt);
 int dm_validate_argc(int argc);
-int dm_validate_args(struct dm_context *dm_ctx, int arg_start_idx, int argc);
+int dm_validate_args(struct dm_context *dm_ctx, size_t arg_start_idx, int argc);
 int dm_input_cli(struct dm_download *dm_dl,
-                int arg_start_idx,
+                size_t arg_start_idx,
                 int argc,
                 char *argv[]);
 int dm_input_file(struct dm_context *dm_ctx,

@@ -30,7 +30,12 @@ if(CMAKE_BUILD_TYPE STREQUAL "Debug")
                 -Wundef
                 -Werror=return-type
                 -Wmaybe-uninitialized
-                -pedantic
+                -Wpedantic
+                -Wconversion
+                -Wsign-conversion
+                -Wshadow
+                -Wnull-dereference
+                -Wformat=2
         )
         target_link_libraries(dm PRIVATE m curl parg -fsanitize=address,undefined)
 elseif(CMAKE_BUILD_TYPE STREQUAL "Release")
@@ -43,7 +48,12 @@ elseif(CMAKE_BUILD_TYPE STREQUAL "Release")
                 -Wundef
                 -Werror=return-type
                 -Wmaybe-uninitialized
-                -pedantic
+                -Wpedantic
+                -Wconversion
+                -Wsign-conversion
+                -Wshadow
+                -Wnull-dereference
+                -Wformat=2
         )
         target_link_libraries(dm PRIVATE m curl parg)
 endif()
