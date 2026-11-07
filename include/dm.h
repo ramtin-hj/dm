@@ -10,7 +10,7 @@
 #define VERSION_MINOR   0
 #define MAX_PARALLEL    10
 #define MIN_ARGC        2
-#define ARG_FMT         ":vhd:f:"
+#define OPTION_STRING     ":vhd:f:"
 
 /* Buffer sizes */
 #define ERR_BUF_SIZE    256 
@@ -96,9 +96,8 @@ struct dm_download {
         CURL *curl;
         FILE *file;
 
-        bool has_filename;
-
         size_t count, idx;
+        char *server_filename;
         char **url, **filename, **filepath;
 
         const char *current_filename;
@@ -141,7 +140,7 @@ int dm_progress_cb(void *clientp,
 int dm_context_init(struct dm_context *dm_ctx, int input_method);
 void dm_context_cleanup(struct dm_context *dm_ctx);
 int dm_download_init(struct dm_download *dm_dl, CURL *curl, int mode);
-void dm_download_cleanup(struct dm_download *dl);
+void dm_download_cleanup(struct dm_context *dm_ctx, struct dm_download *dl);
 int dm_download_perform(struct dm_context *dm_ctx, struct dm_download *dm_dl);
 int dm_download_sync(struct dm_download *dm_dl,
                 const char *path,
@@ -150,7 +149,7 @@ int dm_parse_args(struct dm_context *dm_ctx,
                 struct parg_state *ps,
                 int argc,
                 char *argv[],
-                const char *arg_fmt);
+                const char *optstr);
 int dm_validate_argc(int argc);
 int dm_validate_args(struct dm_context *dm_ctx, size_t arg_start_idx, int argc);
 int dm_input_cli(struct dm_download *dm_dl,

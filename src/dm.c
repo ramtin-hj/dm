@@ -20,7 +20,7 @@ const char *exec_name;
 int main(int argc, char *argv[])
 {
         int retval = EXIT_FAILURE;
-        int optend = parg_reorder(argc, argv, ARG_FMT, NULL);
+        int optend = parg_reorder(argc, argv, OPTION_STRING, NULL);
 
         FILE *input_file = NULL;
 
@@ -41,7 +41,7 @@ int main(int argc, char *argv[])
 
         parg_init(&ps);
 
-        dm_parse_args(&dm_ctx, &ps, optend, argv, ARG_FMT);
+        dm_parse_args(&dm_ctx, &ps, optend, argv, OPTION_STRING);
         if (dm_validate_args(&dm_ctx, (size_t)ps.optind, argc) != DM_OK)
                 goto out_dm_cleanup;
 
@@ -155,7 +155,7 @@ int main(int argc, char *argv[])
         retval = EXIT_SUCCESS;
 
 out_dl_cleanup:
-        dm_download_cleanup(&dm_dl);
+        dm_download_cleanup(&dm_ctx, &dm_dl);
 out_curl_cleanup:
         curl_global_cleanup();
 out_dm_cleanup:
@@ -178,17 +178,13 @@ size_t dm_header_cb(char *buffer,
                         HEADER_FILENAME_KEY,
                         strlen(HEADER_FILENAME_KEY));
 
-        printf("%s", buffer);
-
         if (p) {
-                dm_dl->has_filename= true;
-
                 p += strlen(HEADER_FILENAME_KEY);
                 end = buffer + size * nitems - 2;
                 filename_len = (size_t)(end - p);
                         
 
-                dm_dl->filename[dm_dl->idx] = strndup(p, filename_len);
+                dm_dl->server_filename = strndup(p, filename_len);
         }
 
         return size * nitems;
@@ -257,10 +253,10 @@ int dm_download_init(struct dm_download *dm_dl, CURL *curl, int mode)
         dm_dl->mode = mode;
         dm_dl->curl = curl;
         dm_dl->file = NULL;
-        dm_dl->has_filename = false;
         dm_dl->count = 0;
         dm_dl->idx = 0;
         dm_dl->url = NULL;
+        dm_dl->server_filename = NULL;
         dm_dl->filename = NULL;
         dm_dl->filepath = NULL;
 
@@ -270,8 +266,13 @@ out:
         return retval;
 }
 
-void dm_download_cleanup(struct dm_download *dm_dl)
+void dm_download_cleanup(struct dm_context *dm_ctx, struct dm_download *dm_dl)
 {
+        if (dm_ctx->dirpath) {
+                for (size_t i = 0; i < dm_dl->count; i++)
+                        free(dm_dl->filepath[i]);
+        }
+
         free(dm_dl->filepath);
 
         for (size_t i = 0; i < dm_dl->count; i++)
@@ -291,6 +292,7 @@ int dm_download_perform(struct dm_context *dm_ctx, struct dm_download *dm_dl)
 {
         int retval = -DM_FAIL;
 
+        size_t size;
         char *temp;
 
         /* TODO: Implement asynchronous downloads using curl's multimode. */
@@ -300,7 +302,7 @@ int dm_download_perform(struct dm_context *dm_ctx, struct dm_download *dm_dl)
         for (size_t i = 0; i < dm_dl->count; i++) {
                 dm_dl->idx = i;
                 if (dm_ctx->dirpath) {
-                        size_t size = strlen(dm_ctx->dirpath) + strlen(dm_dl->filename[i]) + 1;
+                        size = strlen(dm_ctx->dirpath) + strlen(dm_dl->filename[i]) + 1;
                         temp = malloc(size);
                         if (!temp)
                                 goto out;
@@ -311,15 +313,28 @@ int dm_download_perform(struct dm_context *dm_ctx, struct dm_download *dm_dl)
                         dm_dl->filepath[i] = temp;
                 }
 
-
                 if (dm_download_sync(dm_dl, dm_dl->filepath[i], dm_dl->url[i]) != DM_OK)
                         goto out;
 
-                dm_dl->has_filename = false;
 
-                if (dm_ctx->dirpath) {
-                        free(dm_dl->filepath[i]);
-                        dm_dl->filepath[i] = NULL;
+                if (dm_dl->server_filename) {
+                        if (strcmp(dm_dl->filename[i], dm_dl->server_filename) != 0) {
+                                size = strlen(dm_ctx->dirpath) + strlen(dm_dl->server_filename) + 1;
+                                temp = malloc(size);
+                                if (!temp)
+                                        goto out;
+
+                                strcpy(temp, dm_ctx->dirpath);
+                                strcat(temp, dm_dl->server_filename);
+
+                                if (rename(dm_dl->filepath[i], temp) < 0)
+                                        goto out;
+
+                                free(temp);
+                        }
+
+                        free(dm_dl->server_filename);
+                        dm_dl->server_filename = NULL;
                 }
         }
 
@@ -348,14 +363,16 @@ int dm_download_sync(struct dm_download *dm_dl,
 
         res_setopt = curl_easy_setopt(dm_dl->curl, CURLOPT_URL, url);
         if (res_setopt != CURLE_OK)
-                goto out;
+                goto out_close_file;
 
         res_perform = curl_easy_perform(dm_dl->curl);
         if (res_perform != CURLE_OK)
-                goto out;
+                goto out_close_file;
 
         retval = DM_OK;
 
+out_close_file:
+        fclose(dm_dl->file);
 out:
         return retval;
 }
@@ -364,7 +381,7 @@ int dm_parse_args(struct dm_context *dm_ctx,
                 struct parg_state *ps,
                 int argc,
                 char *argv[],
-                const char *arg_fmt)
+                const char *optstr)
 {
         int retval = -DM_FAIL;
 
@@ -375,7 +392,22 @@ int dm_parse_args(struct dm_context *dm_ctx,
         size_t optarg_len, new_size;
         bool slash = false;
 
-        while ((opt = parg_getopt(ps, argc, argv, arg_fmt)) != -1) {
+        int long_opt_idx = 0;
+        struct parg_option long_opt[] = {
+                {"help", PARG_NOARG, NULL, 'h'},
+                {"version", PARG_NOARG, NULL, 'v'},
+                {"dir", PARG_REQARG, NULL, 'd'},
+                {"directory", PARG_REQARG, NULL, 'd'},
+                {"file", PARG_REQARG, NULL, 'f'}
+        };
+
+        while ((opt = parg_getopt_long(ps,
+                                        argc,
+                                        argv,
+                                        optstr,
+                                        &long_opt[long_opt_idx],
+                                        &long_opt_idx))
+                        != -1) {
                 switch (opt) {
                         case 'v':
                                 dm_log_version();
@@ -506,8 +538,7 @@ int dm_input_cli(struct dm_download *dm_dl,
         for (size_t i = 0; i < dm_dl->count; i++) {
                 dm_dl->url[i] = strdup(argv[arg_start_idx + i]);
 
-                if (!dm_dl->has_filename)
-                        dm_dl->filename[i] = strdup(base_path(dm_dl->url[i]));
+                dm_dl->filename[i] = strdup(base_path(dm_dl->url[i]));
 
                 dm_dl->filepath[i] = dm_dl->filename[i];
         }
@@ -552,19 +583,19 @@ int dm_input_file(struct dm_context *dm_ctx,
                 if (dm_dl->count >= url_cap) {
                         url_cap *= DYN_ARR_GROWTH_FACT;
 
-                        temp = realloc(dm_dl->url, url_cap);
+                        temp = realloc(dm_dl->url, url_cap * sizeof *dm_dl->url);
                         if (!temp)
                                 goto out;
 
                         dm_dl->url = (char**)temp;
 
-                        temp = realloc(dm_dl->filename, url_cap);
+                        temp = realloc(dm_dl->filename, url_cap * sizeof *dm_dl->filename);
                         if (!temp)
                                 goto out;
 
                         dm_dl->filename = (char**)temp;
 
-                        temp = realloc(dm_dl->filepath, url_cap);
+                        temp = realloc(dm_dl->filepath, url_cap * sizeof *dm_dl->filepath);
                         if (!temp)
                                 goto out;
 
@@ -575,8 +606,7 @@ int dm_input_file(struct dm_context *dm_ctx,
                 if (!dm_dl->url[dm_dl->count])
                         goto out;
 
-                if (!dm_dl->has_filename)
-                        dm_dl->filename[dm_dl->count] = strdup(base_path(dm_dl->url[dm_dl->count]));
+                dm_dl->filename[dm_dl->count] = strdup(base_path(dm_dl->url[dm_dl->count]));
                 dm_dl->filepath[dm_dl->count] = dm_dl->filename[dm_dl->count];
 
                 dm_dl->count++;
