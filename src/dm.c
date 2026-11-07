@@ -138,10 +138,9 @@ int main(int argc, char *argv[])
 
         if (dm_download_perform(&dm_ctx, &dm_dl) != DM_OK) {
                 putc('\n', stdout);
-                LOG_ERROR_VA("download failed ([%zu/%zu] %s): %s",
-                                dm_dl.idx,
+                LOG_ERROR_VA("download %zu out of %zu failed: %s",
+                                dm_dl.idx + 1,
                                 dm_dl.count,
-                                dm_dl.filename[dm_dl.idx],
                                 err_buf);
                 goto out_dl_cleanup;
         }
@@ -156,7 +155,7 @@ int main(int argc, char *argv[])
         retval = EXIT_SUCCESS;
 
 out_dl_cleanup:
-        dm_download_cleanup(&dm_ctx, &dm_dl);
+        dm_download_cleanup(&dm_dl);
 out_curl_cleanup:
         curl_global_cleanup();
 out_dm_cleanup:
@@ -182,7 +181,7 @@ size_t dm_header_cb(char *buffer,
         printf("%s", buffer);
 
         if (p) {
-                dm_dl->header_contains_filename = true;
+                dm_dl->has_filename= true;
 
                 p += strlen(HEADER_FILENAME_KEY);
                 end = buffer + size * nitems - 2;
@@ -258,7 +257,7 @@ int dm_download_init(struct dm_download *dm_dl, CURL *curl, int mode)
         dm_dl->mode = mode;
         dm_dl->curl = curl;
         dm_dl->file = NULL;
-        dm_dl->header_contains_filename = false;
+        dm_dl->has_filename = false;
         dm_dl->count = 0;
         dm_dl->idx = 0;
         dm_dl->url = NULL;
@@ -271,7 +270,7 @@ out:
         return retval;
 }
 
-void dm_download_cleanup(struct dm_context *dm_ctx, struct dm_download *dm_dl)
+void dm_download_cleanup(struct dm_download *dm_dl)
 {
         free(dm_dl->filepath);
 
@@ -280,10 +279,8 @@ void dm_download_cleanup(struct dm_context *dm_ctx, struct dm_download *dm_dl)
 
         free(dm_dl->filename);
 
-        if (dm_ctx->input_method == INPUT_FILE) {
-                for (size_t i = 0; i < dm_dl->count; i++)
-                        free(dm_dl->url[i]);
-        }
+        for (size_t i = 0; i < dm_dl->count; i++)
+                free(dm_dl->url[i]);
 
         free(dm_dl->url);
 
@@ -318,7 +315,7 @@ int dm_download_perform(struct dm_context *dm_ctx, struct dm_download *dm_dl)
                 if (dm_download_sync(dm_dl, dm_dl->filepath[i], dm_dl->url[i]) != DM_OK)
                         goto out;
 
-                dm_dl->header_contains_filename = false;
+                dm_dl->has_filename = false;
 
                 if (dm_ctx->dirpath) {
                         free(dm_dl->filepath[i]);
@@ -488,29 +485,29 @@ int dm_input_cli(struct dm_download *dm_dl,
 
         dm_dl->count = (size_t)argc - arg_start_idx;
 
-        dm_dl->url = calloc(dm_dl->count * sizeof *dm_dl->url, 1);
+        dm_dl->url = calloc(dm_dl->count, sizeof *dm_dl->url);
         if (!dm_dl->url) {
                 LOG_FATAL(strerror(errno));
                 goto out;
         }
 
-        dm_dl->filename = calloc(dm_dl->count * sizeof *dm_dl->filename, 1);
+        dm_dl->filename = calloc(dm_dl->count, sizeof *dm_dl->filename);
         if (!dm_dl->filename) {
                 LOG_FATAL(strerror(errno));
                 goto out;
         }
 
-        dm_dl->filepath = calloc(dm_dl->count * sizeof *dm_dl->filepath, 1);
+        dm_dl->filepath = calloc(dm_dl->count, sizeof *dm_dl->filepath);
         if (!dm_dl->filepath) {
                 LOG_FATAL(strerror(errno));
                 goto out;
         }
 
         for (size_t i = 0; i < dm_dl->count; i++) {
-                dm_dl->url[i] = argv[arg_start_idx + i];
+                dm_dl->url[i] = strdup(argv[arg_start_idx + i]);
 
-                if (!dm_dl->header_contains_filename)
-                        dm_dl->filename[i] = (char*)base_path(dm_dl->url[i]);
+                if (!dm_dl->has_filename)
+                        dm_dl->filename[i] = strdup(base_path(dm_dl->url[i]));
 
                 dm_dl->filepath[i] = dm_dl->filename[i];
         }
@@ -530,9 +527,23 @@ int dm_input_file(struct dm_context *dm_ctx,
         char *temp;
         size_t url_cap = DYN_ARR_BASE_CAP;
 
-        dm_dl->url = calloc(url_cap * sizeof *dm_dl->url, 1);
-        dm_dl->filename = calloc(url_cap * sizeof *dm_dl->filename, 1);
-        dm_dl->filepath = calloc(url_cap * sizeof *dm_dl->filepath, 1);
+        dm_dl->url = calloc(url_cap, sizeof *dm_dl->url);
+        if (!dm_dl->url) {
+                LOG_FATAL(strerror(errno));
+                goto out;
+        }
+
+        dm_dl->filename = calloc(url_cap, sizeof *dm_dl->filename);
+        if (!dm_dl->filename) {
+                LOG_FATAL(strerror(errno));
+                goto out;
+        }
+
+        dm_dl->filepath = calloc(url_cap, sizeof *dm_dl->filepath);
+        if (!dm_dl->filepath) {
+                LOG_FATAL(strerror(errno));
+                goto out;
+        }
 
         while (fgets(dm_ctx->input_buf, INPUT_BUF_SIZE, input_file)) {
                 temp = strrchr(dm_ctx->input_buf, '\n');
@@ -564,7 +575,8 @@ int dm_input_file(struct dm_context *dm_ctx,
                 if (!dm_dl->url[dm_dl->count])
                         goto out;
 
-                dm_dl->filename[dm_dl->count] = (char*)base_path(dm_dl->url[dm_dl->count]);
+                if (!dm_dl->has_filename)
+                        dm_dl->filename[dm_dl->count] = strdup(base_path(dm_dl->url[dm_dl->count]));
                 dm_dl->filepath[dm_dl->count] = dm_dl->filename[dm_dl->count];
 
                 dm_dl->count++;

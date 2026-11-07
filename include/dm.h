@@ -141,7 +141,7 @@ int dm_progress_cb(void *clientp,
 int dm_context_init(struct dm_context *dm_ctx, int input_method);
 void dm_context_cleanup(struct dm_context *dm_ctx);
 int dm_download_init(struct dm_download *dm_dl, CURL *curl, int mode);
-void dm_download_cleanup(struct dm_context *dm_ctx, struct dm_download *dl);
+void dm_download_cleanup(struct dm_download *dl);
 int dm_download_perform(struct dm_context *dm_ctx, struct dm_download *dm_dl);
 int dm_download_sync(struct dm_download *dm_dl,
                 const char *path,
